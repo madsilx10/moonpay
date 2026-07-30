@@ -85,7 +85,7 @@ async function xfetch(url, options = {}) {
 // GET USER ID dari username (REST v1.1)
 // ─────────────────────────────────────────────────────────────
 async function getUserId(username, ct0, auth_token) {
-  const url  = `https://api.twitter.com/1.1/users/show.json?screen_name=${username}`;
+  const url  = `https://twitter.com/i/api/1.1/users/show.json?screen_name=${username}`;
   const data = await xfetch(url, { headers: makeHeaders(ct0, auth_token) });
   return data.id_str;
 }
@@ -102,7 +102,7 @@ async function getFollowers(userId, cursor, ct0, auth_token) {
     include_user_entities: false,
   });
 
-  const url  = `https://api.twitter.com/1.1/followers/list.json?${params}`;
+  const url  = `https://twitter.com/i/api/1.1/followers/list.json?${params}`;
   const data = await xfetch(url, { headers: makeHeaders(ct0, auth_token) });
 
   const users = (data.users ?? []).map((u) => ({ id: u.id_str, name: u.screen_name }));
