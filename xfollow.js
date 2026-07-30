@@ -85,12 +85,30 @@ async function xfetch(url, options = {}) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// GET USER ID dari username (REST v1.1)
+// GET USER ID dari username (GraphQL)
 // ─────────────────────────────────────────────────────────────
 async function getUserId(username, ct0, auth_token) {
-  const url  = `https://twitter.com/i/api/1.1/users/show.json?screen_name=${username}`;
+  const vars = encodeURIComponent(JSON.stringify({
+    screen_name: username,
+    withSafetyModeUserFields: true,
+  }));
+  const features = encodeURIComponent(JSON.stringify({
+    hidden_profile_subscriptions_enabled                              : true,
+    rweb_tipjar_consumption_enabled                                   : true,
+    responsive_web_graphql_exclude_directive_enabled                  : true,
+    verified_phone_label_enabled                                      : false,
+    subscriptions_verification_info_is_identity_verified_enabled      : true,
+    subscriptions_verification_info_verified_since_enabled            : true,
+    highlights_tweets_tab_ui_enabled                                  : true,
+    responsive_web_twitter_article_notes_tab_enabled                  : false,
+    creator_subscriptions_tweet_preview_api_enabled                   : true,
+    responsive_web_graphql_skip_user_profile_image_extensions_enabled : false,
+    responsive_web_graphql_timeline_navigation_enabled                : true,
+  }));
+
+  const url  = `https://twitter.com/i/api/graphql/G3KGOASz96M-Qu0nwmGXNg/UserByScreenName?variables=${vars}&features=${features}`;
   const data = await xfetch(url, { headers: makeHeaders(ct0, auth_token) });
-  return data.id_str;
+  return data.data.user.result.rest_id;
 }
 
 // ─────────────────────────────────────────────────────────────
