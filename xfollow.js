@@ -1,16 +1,19 @@
 // xfollow.js - Follow followers of a target X account
 // Baca akun dari x.txt (auth_token\nct0 per blok, dipisah baris kosong)
-// Usage: node xfollow.js
+// Usage:
+//   node xfollow.js      → semua akun
+//   node xfollow.js 2    → akun ke-2 aja
 
 import fs from "fs";
+import readline from "readline";
 
 // ─────────────────────────────────────────────────────────────
 // CONFIG
 // ─────────────────────────────────────────────────────────────
 const TARGET_USERNAME = "moonpay";
 const FOLLOW_LIMIT    = 100;
-const DELAY_MIN_MS    = 2000;
-const DELAY_MAX_MS    = 7000;
+const DELAY_MIN_MS    = 15000;
+const DELAY_MAX_MS    = 35000;
 const ACCOUNTS_FILE   = "x.txt";
 const PROGRESS_FILE   = "follow_progress.json";
 
@@ -79,85 +82,32 @@ async function xfetch(url, options = {}) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// GET USER ID dari username
+// GET USER ID dari username (REST v1.1)
 // ─────────────────────────────────────────────────────────────
 async function getUserId(username, ct0, auth_token) {
-  const vars = encodeURIComponent(
-    JSON.stringify({ screen_name: username, withSafetyModeUserFields: true })
-  );
-  const features = encodeURIComponent(JSON.stringify({
-    hidden_profile_subscriptions_enabled                               : true,
-    rweb_tipjar_consumption_enabled                                    : true,
-    responsive_web_graphql_exclude_directive_enabled                   : true,
-    verified_phone_label_enabled                                       : false,
-    subscriptions_verification_info_is_identity_verified_enabled       : true,
-    subscriptions_verification_info_verified_since_enabled             : true,
-    highlights_tweets_tab_ui_enabled                                   : true,
-    responsive_web_twitter_article_notes_tab_enabled                   : false,
-    creator_subscriptions_tweet_preview_api_enabled                    : true,
-    responsive_web_graphql_skip_user_profile_image_extensions_enabled  : false,
-    responsive_web_graphql_timeline_navigation_enabled                 : true,
-  }));
-
-  const url = `https://twitter.com/i/api/graphql/G3KGOASz96M-Qu0nwmGXNg/UserByScreenName?variables=${vars}&features=${features}`;
+  const url  = `https://api.twitter.com/1.1/users/show.json?screen_name=${username}`;
   const data = await xfetch(url, { headers: makeHeaders(ct0, auth_token) });
-  return data.data.user.result.rest_id;
+  return data.id_str;
 }
 
 // ─────────────────────────────────────────────────────────────
-// GET FOLLOWERS (paginated)
+// GET FOLLOWERS (REST v1.1 - stable, no graphql ID expiry)
 // ─────────────────────────────────────────────────────────────
 async function getFollowers(userId, cursor, ct0, auth_token) {
-  const vars = { userId, count: 20, includePromotedContent: false };
-  if (cursor) vars.cursor = cursor;
+  const params = new URLSearchParams({
+    user_id             : userId,
+    count               : 200,
+    cursor              : cursor ?? -1,
+    skip_status         : true,
+    include_user_entities: false,
+  });
 
-  const features = {
-    rweb_tipjar_consumption_enabled                                        : true,
-    responsive_web_graphql_exclude_directive_enabled                       : true,
-    verified_phone_label_enabled                                           : false,
-    creator_subscriptions_tweet_preview_api_enabled                        : true,
-    responsive_web_graphql_timeline_navigation_enabled                     : true,
-    responsive_web_graphql_skip_user_profile_image_extensions_enabled      : false,
-    communities_web_enable_tweet_community_results_fetch                   : true,
-    c9s_tweet_anatomy_moderator_badge_enabled                              : true,
-    articles_preview_enabled                                               : true,
-    tweetypie_unmention_optimization_enabled                               : true,
-    responsive_web_edit_tweet_api_enabled                                  : true,
-    graphql_is_translatable_rweb_tweet_is_translatable_enabled             : true,
-    view_counts_everywhere_api_enabled                                     : true,
-    longform_notetweets_consumption_enabled                                : true,
-    responsive_web_twitter_article_tweet_consumption_enabled               : true,
-    tweet_awards_web_tipping_enabled                                       : false,
-    creator_subscriptions_quote_tweet_preview_enabled                      : false,
-    freedom_of_speech_not_reach_fetch_enabled                              : true,
-    standardized_nudges_misinfo                                            : true,
-    tweet_with_visibility_results_prefer_gql_limited_actions_policy_enabled: true,
-    rweb_video_timestamps_enabled                                          : true,
-    longform_notetweets_rich_text_read_enabled                             : true,
-    longform_notetweets_inline_media_enabled                               : true,
-    responsive_web_enhance_cards_enabled                                   : false,
-  };
-
-  const url = `https://twitter.com/i/api/graphql/rRXFSG5vR6drKr5M37YOTw/Followers?variables=${encodeURIComponent(JSON.stringify(vars))}&features=${encodeURIComponent(JSON.stringify(features))}`;
+  const url  = `https://api.twitter.com/1.1/followers/list.json?${params}`;
   const data = await xfetch(url, { headers: makeHeaders(ct0, auth_token) });
 
-  const entries =
-    data.data.user.result.timeline.timeline.instructions
-      .find((i) => i.type === "TimelineAddEntries")?.entries || [];
-
-  const users = [];
-  let nextCursor = null;
-
-  for (const entry of entries) {
-    if (entry.entryId.startsWith("user-")) {
-      const u = entry.content?.itemContent?.user_results?.result;
-      if (u?.rest_id)
-        users.push({ id: u.rest_id, name: u.legacy?.screen_name });
-    }
-    if (entry.entryId === "cursor-bottom-0") {
-      nextCursor = entry.content?.value;
-    }
-  }
+  const users = (data.users ?? []).map((u) => ({ id: u.id_str, name: u.screen_name }));
+  // next_cursor_str == "0" artinya sudah habis
+  const nextCursor = data.next_cursor_str !== "0" ? data.next_cursor_str : null;
 
   return { users, nextCursor };
 }
@@ -174,12 +124,47 @@ async function followUser(userId, ct0, auth_token) {
   return data;
 }
 
+function prompt(question) {
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  return new Promise((resolve) => rl.question(question, (ans) => { rl.close(); resolve(ans.trim()); }));
+}
+
 // ─────────────────────────────────────────────────────────────
 // MAIN
 // ─────────────────────────────────────────────────────────────
 async function main() {
-  const accounts = loadAccounts();
-  console.log(`Loaded ${accounts.length} akun dari ${ACCOUNTS_FILE}`);
+  const allAccounts = loadAccounts();
+  console.log(`\nLoaded ${allAccounts.length} akun dari ${ACCOUNTS_FILE}`);
+  allAccounts.forEach((a, i) => console.log(`  ${i + 1}. ${a.label}`));
+
+  console.log(`\nPilih mode:`);
+  console.log(`  1. 1 akun`);
+  console.log(`  2. Range (dari akun X sampai selesai)`);
+
+  const mode = await prompt(`\nPilihan [1/2]: `);
+  let accounts;
+
+  if (mode === "1") {
+    const pick = await prompt(`Pilih akun [1-${allAccounts.length}]: `);
+    const idx  = parseInt(pick, 10);
+    if (isNaN(idx) || idx < 1 || idx > allAccounts.length) {
+      console.error(`Akun tidak valid.`); process.exit(1);
+    }
+    accounts = [allAccounts[idx - 1]];
+    console.log(`\n▶ Mode: ${allAccounts[idx - 1].label} aja\n`);
+
+  } else if (mode === "2") {
+    const from = await prompt(`Mulai dari akun ke- [1-${allAccounts.length}]: `);
+    const idx  = parseInt(from, 10);
+    if (isNaN(idx) || idx < 1 || idx > allAccounts.length) {
+      console.error(`Angka tidak valid.`); process.exit(1);
+    }
+    accounts = allAccounts.slice(idx - 1);
+    console.log(`\n▶ Mode: akun${idx} → akun${allAccounts.length}\n`);
+
+  } else {
+    console.error(`Pilihan tidak valid.`); process.exit(1);
+  }
 
   const progress = loadProgress();
 
@@ -230,9 +215,6 @@ async function main() {
           count++;
           console.log(`  ✓  @${user.name} [${count}/${FOLLOW_LIMIT}]`);
           saveProgress(progress);
-          const delay = Math.floor(Math.random() * (DELAY_MAX_MS - DELAY_MIN_MS + 1)) + DELAY_MIN_MS;
-          console.log(`  ⏱  next in ${(delay / 1000).toFixed(1)}s`);
-          await sleep(delay);
         } catch (err) {
           const code = err.data?.errors?.[0]?.code;
           if (code === 160) {
@@ -246,6 +228,11 @@ async function main() {
             console.error(`  ✗  @${user.name} error:`, err.data || err.message);
           }
         }
+
+        // delay jalan tiap iterasi user, bukan cuma kalau follow berhasil
+        const delay = Math.floor(Math.random() * (DELAY_MAX_MS - DELAY_MIN_MS + 1)) + DELAY_MIN_MS;
+        console.log(`  ⏱  next in ${(delay / 1000).toFixed(1)}s`);
+        await sleep(delay);
 
         if (count >= FOLLOW_LIMIT) break;
       }
