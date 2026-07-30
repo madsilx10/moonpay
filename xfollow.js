@@ -9,7 +9,8 @@ import fs from "fs";
 // ─────────────────────────────────────────────────────────────
 const TARGET_USERNAME = "moonpay";
 const FOLLOW_LIMIT    = 100;
-const DELAY_MS        = 3500;
+const DELAY_MIN_MS    = 2000;
+const DELAY_MAX_MS    = 7000;
 const ACCOUNTS_FILE   = "x.txt";
 const PROGRESS_FILE   = "follow_progress.json";
 
@@ -57,7 +58,22 @@ function makeHeaders(ct0, auth_token, formEncoded = false) {
 
 async function xfetch(url, options = {}) {
   const res = await fetch(url, options);
-  const json = await res.json();
+  const text = await res.text();
+
+  if (!text || !text.trim()) {
+    throw Object.assign(new Error(`HTTP ${res.status} - empty response`), { data: null });
+  }
+
+  let json;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    throw Object.assign(
+      new Error(`HTTP ${res.status} - non-JSON response: ${text.slice(0, 200)}`),
+      { data: text }
+    );
+  }
+
   if (!res.ok) throw Object.assign(new Error("HTTP " + res.status), { data: json });
   return json;
 }
@@ -214,7 +230,9 @@ async function main() {
           count++;
           console.log(`  ✓  @${user.name} [${count}/${FOLLOW_LIMIT}]`);
           saveProgress(progress);
-          await sleep(DELAY_MS + Math.floor(Math.random() * 1000));
+          const delay = Math.floor(Math.random() * (DELAY_MAX_MS - DELAY_MIN_MS + 1)) + DELAY_MIN_MS;
+          console.log(`  ⏱  next in ${(delay / 1000).toFixed(1)}s`);
+          await sleep(delay);
         } catch (err) {
           const code = err.data?.errors?.[0]?.code;
           if (code === 160) {
