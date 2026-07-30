@@ -24,8 +24,9 @@ function loadAccounts() {
   const raw = fs.readFileSync(ACCOUNTS_FILE, "utf-8").trim();
   const blocks = raw.split(/\n\s*\n/);
   return blocks.map((block, i) => {
-    const [auth_token, ct0] = block.trim().split("\n").map((l) => l.trim());
+    const [auth_token, ct0] = block.trim().split("\n").map((l) => l.trim().replace(/\r/g, ""));
     if (!auth_token || !ct0) throw new Error(`x.txt blok ${i + 1} format salah`);
+    console.log(`[akun${i + 1}] auth_token: ${auth_token.slice(0, 6)}... ct0: ${ct0.slice(0, 6)}...`);
     return { label: `akun${i + 1}`, auth_token, ct0 };
   });
 }
@@ -55,6 +56,8 @@ function makeHeaders(ct0, auth_token, formEncoded = false) {
     "x-twitter-active-user"    : "yes",
     "x-twitter-auth-type"      : "OAuth2Session",
     "x-twitter-client-language": "en",
+    "origin"                   : "https://twitter.com",
+    "referer"                  : "https://twitter.com/",
     "user-agent"                : "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36",
   };
 }
